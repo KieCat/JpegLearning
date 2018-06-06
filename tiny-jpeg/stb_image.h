@@ -691,7 +691,7 @@ static int stbi__sse2_available(void)
 typedef struct
 {
    stbi__uint32 img_x, img_y;
-   int img_n, img_out_n;
+   int img_n, img_out_n;    //RGBA channel num: 3 or 4
 
    stbi_io_callbacks io;
    void *io_user_data;      //file pointer
@@ -5017,6 +5017,10 @@ static int stbi__high_bit(unsigned int z)
    return n;
 }
 
+//how many 1 in a when convert to binary
+//https://www.cnblogs.com/graphics/archive/2010/06/21/1752421.html
+//gcc test.c -msse4 -o prog while using sse
+//https://software.intel.com/sites/landingpage/IntrinsicsGuide/
 static int stbi__bitcount(unsigned int a)
 {
    a = (a & 0x55555555) + ((a >>  1) & 0x55555555); // max 2
@@ -5047,13 +5051,13 @@ static int stbi__shiftsigned(int v, int shift, int bits)
    STBI_ASSERT(v >= 0 && v < 256);
    v >>= (8-bits);
    STBI_ASSERT(bits >= 0 && bits <= 8);
-   return (int) ((unsigned) v * mul_table[bits]) >> shift_table[bits];
+   return (int) ((unsigned) v * mul_table[bits]) >> shift_table[bits];  //??
 }
 
 typedef struct
 {
-   int bpp, offset, hsz;
-   unsigned int mr,mg,mb,ma, all_a;
+   int bpp, offset, hsz;    //bit count per pixcel      //offset: data offset     //hsz: info header size(bytes)
+   unsigned int mr,mg,mb,ma, all_a;     //mask of RGB
 } stbi__bmp_data;
 
 static void *stbi__bmp_parse_header(stbi__context *s, stbi__bmp_data *info)
@@ -5075,11 +5079,11 @@ static void *stbi__bmp_parse_header(stbi__context *s, stbi__bmp_data *info)
       s->img_x = stbi__get32le(s);
       s->img_y = stbi__get32le(s);
    }
-   if (stbi__get16le(s) != 1) return stbi__errpuc("bad BMP", "bad BMP");
+   if (stbi__get16le(s) != 1) return stbi__errpuc("bad BMP", "bad BMP");    //biPlanes, must be 1
    info->bpp = stbi__get16le(s);
    if (hsz != 12) {
       int compress = stbi__get32le(s);
-      if (compress == 1 || compress == 2) return stbi__errpuc("BMP RLE", "BMP type not supported: RLE");
+      if (compress == 1 || compress == 2) return stbi__errpuc("BMP RLE", "BMP type not supported: RLE");    //BMP biCompression: 0.none, 1.BI_RLE8, 2.BI_RLE4
       stbi__get32le(s); // discard sizeof
       stbi__get32le(s); // discard hres
       stbi__get32le(s); // discard vres
@@ -5101,8 +5105,8 @@ static void *stbi__bmp_parse_header(stbi__context *s, stbi__bmp_data *info)
                   info->ma = 0xffu << 24;
                   info->all_a = 0; // if all_a is 0 at end, then we loaded alpha channel but it was all 0
                } else {
-                  info->mr = 31u << 10;
-                  info->mg = 31u <<  5;
+                  info->mr = 31u << 10;     //31 = 0x1F
+                  info->mg = 31u <<  5;     //RGB555, xRRRRRGGGGGBBBBB
                   info->mb = 31u <<  0;
                }
             } else if (compress == 3) {
@@ -5117,7 +5121,8 @@ static void *stbi__bmp_parse_header(stbi__context *s, stbi__bmp_data *info)
             } else
                return stbi__errpuc("bad BMP", "bad BMP");
          }
-      } else {
+      }
+      else {
          int i;
          if (hsz != 108 && hsz != 124)
             return stbi__errpuc("bad BMP", "bad BMP");
@@ -5165,10 +5170,11 @@ static void *stbi__bmp_load(stbi__context *s, int *x, int *y, int *comp, int req
 
    if (info.hsz == 12) {
       if (info.bpp < 24)
-         psize = (info.offset - 14 - 24) / 3;
-   } else {
+         psize = (info.offset - 14 - 24) / 3;   //14: 'BM'(2)+bmp size(4)+reserved(4)+offset(4)
+   }
+   else {
       if (info.bpp < 16)
-         psize = (info.offset - 14 - info.hsz) >> 2;
+         psize = (info.offset - 14 - info.hsz) >> 2;    //pixcel table size
    }
 
    s->img_n = ma ? 4 : 3;
@@ -5194,11 +5200,11 @@ static void *stbi__bmp_load(stbi__context *s, int *x, int *y, int *comp, int req
          pal[i][3] = 255;
       }
       stbi__skip(s, info.offset - 14 - info.hsz - psize * (info.hsz == 12 ? 3 : 4));
-      if (info.bpp == 1) width = (s->img_x + 7) >> 3;
+      if (info.bpp == 1) width = (s->img_x + 7) >> 3;  //how many bytes can restore horizonal pixcels
       else if (info.bpp == 4) width = (s->img_x + 1) >> 1;
       else if (info.bpp == 8) width = s->img_x;
       else { STBI_FREE(out); return stbi__errpuc("bad bpp", "Corrupt BMP"); }
-      pad = (-width)&3;
+      pad = (-width)&3; //11b, width 4 bytes align
       if (info.bpp == 1) {
          for (j=0; j < (int) s->img_y; ++j) {
             int bit_offset = 7, v = stbi__get8(s);
@@ -5214,13 +5220,14 @@ static void *stbi__bmp_load(stbi__context *s, int *x, int *y, int *comp, int req
             }
             stbi__skip(s, pad);
          }
-      } else {
+      }
+      else {
          for (j=0; j < (int) s->img_y; ++j) {
             for (i=0; i < (int) s->img_x; i += 2) {
                int v=stbi__get8(s),v2=0;
                if (info.bpp == 4) {
-                  v2 = v & 15;
-                  v >>= 4;
+                  v2 = v & 15;      //v2 = low 4-bit
+                  v >>= 4;          //v = high 4-bit
                }
                out[z++] = pal[v][0];
                out[z++] = pal[v][1];
@@ -5236,13 +5243,14 @@ static void *stbi__bmp_load(stbi__context *s, int *x, int *y, int *comp, int req
             stbi__skip(s, pad);
          }
       }
-   } else {
+   }
+   else {
       int rshift=0,gshift=0,bshift=0,ashift=0,rcount=0,gcount=0,bcount=0,acount=0;
       int z = 0;
       int easy=0;
       stbi__skip(s, info.offset - 14 - info.hsz);
       if (info.bpp == 24) width = 3 * s->img_x;
-      else if (info.bpp == 16) width = 2*s->img_x;
+      else if (info.bpp == 16) width = 2 * s->img_x;
       else /* bpp = 32 and pad = 0 */ width=0;
       pad = (-width) & 3;
       if (info.bpp == 24) {
@@ -5271,7 +5279,8 @@ static void *stbi__bmp_load(stbi__context *s, int *x, int *y, int *comp, int req
                all_a |= a;
                if (target == 4) out[z++] = a;
             }
-         } else {
+         }
+         else {
             int bpp = info.bpp;
             for (i=0; i < (int) s->img_x; ++i) {
                stbi__uint32 v = (bpp == 16 ? (stbi__uint32) stbi__get16le(s) : stbi__get32le(s));

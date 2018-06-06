@@ -9,7 +9,7 @@
 int main()
 {
     int width, height, num_components;
-    unsigned char* data = stbi_load("in.bmp", &width, &height, &num_components, 0);
+    unsigned char* data = stbi_load("in.bmp", &width, &height, &num_components, 0);     //require channel nums 3 or 4, if < 3 use image default
     if ( !data ) {
         puts("Could not find file");
         return EXIT_FAILURE;
