@@ -184,7 +184,7 @@ int tje_encode_with_func(tje_write_func* func,
 #endif
 
 // Only use zero for debugging and/or inspection.
-#define TJE_USE_FAST_DCT 1
+#define TJE_USE_FAST_DCT 0
 
 // C std lib
 #include <assert.h>
@@ -263,6 +263,7 @@ typedef struct
 
 
 // K.1 - suggested luminance QT
+//already zig-zag order
 static const uint8_t tjei_default_qt_luma_from_spec[] =
 {
    16,11,10,16, 24, 40, 51, 61,
@@ -373,6 +374,11 @@ static const uint8_t tjei_default_ht_chroma_ac[] =
 // ============================================================
 
 // Zig-zag order:
+// ori[2]                            new[5]
+// ori[i] in ori array should set at new[zigzag[i]] in new array,
+// which means ori[i] should be read at index zigzag[i],
+// then new array [0 ~ n-1] is zigzaged.
+// ext: ori[0], ori[1], ori[8], ori[16], ori[9], ori[2], ori[3], ...
 static const uint8_t tjei_zig_zag[64] =
 {
     0,   1,  5,  6, 14, 15, 27, 28,
@@ -817,7 +823,7 @@ static void tjei_encode_and_write_MCU(TJEState* state,
         }
     }
     for ( int i = 0; i < 64; ++i ) {
-        float fval = dct_mcu[i] / (qt[i]);
+        float fval = dct_mcu[i] / (qt[tjei_zig_zag[i]]); //qt[tjei_zig_zag[i]] is ori qt in index i
         int val = (int)((fval > 0) ? floorf(fval + 0.5f) : ceilf(fval - 0.5f));
         du[tjei_zig_zag[i]] = val;
     }
@@ -1175,7 +1181,7 @@ int tje_encode_to_file(const char* dest_path,
                        const int num_components,
                        const unsigned char* src_data)
 {
-    int res = tje_encode_to_file_at_quality(dest_path, 3, width, height, num_components, src_data);
+    int res = tje_encode_to_file_at_quality(dest_path, 1, width, height, num_components, src_data);
     return res;
 }
 
